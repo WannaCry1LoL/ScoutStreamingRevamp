@@ -1,0 +1,5 @@
+﻿<Project>
+  <PropertyGroup>
+    <OutputPath>$(AppData)/OuterWildsModManager/OWML/Mods/WannaCry.ScoutStreamingRevamp</OutputPath>
+  </PropertyGroup>
+</Project>
