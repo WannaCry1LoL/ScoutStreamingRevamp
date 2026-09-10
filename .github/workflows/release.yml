@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 env:
-  PROJ_USERNAME: Ernesto
+  PROJ_USERNAME: WannaCry
   PROJ_NAME: ScoutStreamingRevamp
 
 jobs:
