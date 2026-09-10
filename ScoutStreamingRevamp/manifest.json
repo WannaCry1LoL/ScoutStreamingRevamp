@@ -4,7 +4,7 @@
   "author": "WannaCry",
   "name": "Scout Streaming Revamp",
   "uniqueName": "WannaCry.ScoutStreamingRevamp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "owmlVersion": "2.16.2",
   "conflicts": [ "Vesper.ScoutStreaming" ],
   "dependencies": []
