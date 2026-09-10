@@ -2,9 +2,10 @@
   "$schema": "https://raw.githubusercontent.com/ow-mods/owml/master/schemas/manifest_schema.json",
   "filename": "ScoutStreamingRevamp.dll",
   "author": "WannaCry",
-  "name": "ScoutStreamingRevamp",
+  "name": "Scout Streaming Revamp",
   "uniqueName": "WannaCry.ScoutStreamingRevamp",
   "version": "0.1.0",
   "owmlVersion": "2.16.2",
+  "conflicts": [ "Vesper.ScoutStreaming" ],
   "dependencies": []
 }
