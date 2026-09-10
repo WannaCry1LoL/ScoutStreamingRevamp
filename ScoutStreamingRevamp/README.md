@@ -1,0 +1,1 @@
+﻿Adds a toggleable streaming feature to the scout
