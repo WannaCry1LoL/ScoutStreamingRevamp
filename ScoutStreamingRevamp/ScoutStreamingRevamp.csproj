@@ -2,7 +2,7 @@
     <PropertyGroup>
         <TargetFramework>net48</TargetFramework>
         <LangVersion>latest</LangVersion>
-        <Copyright>Copyright © 2026 Ernesto</Copyright>
+        <Copyright>Copyright © 2026 WannaCry1LoL</Copyright>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
         <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
