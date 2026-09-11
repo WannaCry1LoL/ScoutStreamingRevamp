@@ -1,5 +1,4 @@
-﻿using System;
-using System.Reflection;
+﻿using System.Reflection;
 using HarmonyLib;
 using OWML.Common;
 using OWML.Common.Enums;
@@ -7,7 +6,6 @@ using OWML.ModHelper;
 using OWML.Utils;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using Object = UnityEngine.Object;
 
 
 namespace ScoutStreamingRevamp
@@ -18,55 +16,45 @@ namespace ScoutStreamingRevamp
 		Streaming
 	}
 
-	[HarmonyPatch]
-	internal static class ProbeCameraPatches
+	[HarmonyPatch(typeof(ProbeLauncher))]
+	internal static class ProbeLauncherPatches
 	{
 		[HarmonyPostfix]
-		[HarmonyPatch(
-			typeof(ProbeLauncher),
-			nameof(ProbeLauncher.TakeSnapshotWithCamera)
-		)]
-		private static void ProbeLauncher_TakeSnapshotWithCamera_Postfix(ProbeCamera camera)
+		[HarmonyPatch(nameof(ProbeLauncher.TakeSnapshotWithCamera))]
+		private static void TakeSnapshotWithCamera_Postfix(ProbeCamera camera)
 			=> ScoutStreamingRevamp.Instance.HandleSnapshotTaken(camera);
+	}
 
+	[HarmonyPatch(typeof(ProbePromptController))]
+	internal static class ProbePromptControllerPatches
+	{
 		[HarmonyPostfix]
-		[HarmonyPatch(
-			typeof(ProbePromptController),
-			nameof(ProbePromptController.OnProbeLauncherEquipped)
-		)]
-		private static void ProbePromptController_OnProbeLauncherEquipped_Postfix(ProbePromptController __instance)
+		[HarmonyPatch(nameof(ProbePromptController.OnProbeLauncherEquipped))]
+		private static void OnProbeLauncherEquipped_Postfix(ProbePromptController __instance)
 			=> ScoutStreamingRevamp.Instance.OnEquipped(__instance);
 
 		[HarmonyPostfix]
-		[HarmonyPatch(
-			typeof(ProbePromptController),
-			nameof(ProbePromptController.OnProbeLauncherUnequipped)
-		)]
-		private static void ProbePromptController_OnProbeLauncherUnequipped_Postfix(ProbePromptController __instance) 
+		[HarmonyPatch(nameof(ProbePromptController.OnProbeLauncherUnequipped))]
+		private static void OnProbeLauncherUnequipped_Postfix(ProbePromptController __instance) 
 			=> ScoutStreamingRevamp.Instance.OnUnequipped(__instance);
 
 		[HarmonyPostfix]
-		[HarmonyPatch(
-			typeof(ProbePromptController),
-			nameof(ProbePromptController.LateInitialize)
-		)]
-		private static void ProbePromptController_LateInitialize_Postfix(ProbePromptController __instance) 
+		[HarmonyPatch(nameof(ProbePromptController.LateInitialize))]
+		private static void LateInitialize_Postfix(ProbePromptController __instance) 
 			=> ScoutStreamingRevamp.Instance.InitializeProbePromptUI(__instance);
+	}
 
+	[HarmonyPatch(typeof(SatelliteSnapshotController))]
+	internal static class SatelliteSnapshotControllerPatches
+	{
 		[HarmonyPostfix]
-		[HarmonyPatch(
-			typeof(SatelliteSnapshotController), 
-			nameof(SatelliteSnapshotController.OnPressInteract)
-		)]
-		private static void SatelliteSnapshotController_OnPressInteract_Postfix(SatelliteSnapshotController __instance)
+		[HarmonyPatch(nameof(SatelliteSnapshotController.OnPressInteract))]
+		private static void OnPressInteract_Postfix(SatelliteSnapshotController __instance)
 			=> ScoutStreamingRevamp.Instance.SetSatelliteCameraEnabled(__instance, true);
 
 		[HarmonyPostfix]
-		[HarmonyPatch(
-			typeof(SatelliteSnapshotController), 
-			nameof(SatelliteSnapshotController.TurnOffProjector)
-		)]
-		private static void SatelliteSnapshotController_TurnOffProjector_Postfix(SatelliteSnapshotController __instance)
+		[HarmonyPatch(nameof(SatelliteSnapshotController.TurnOffProjector))]
+		private static void TurnOffProjector_Postfix(SatelliteSnapshotController __instance)
 			=> ScoutStreamingRevamp.Instance.SetSatelliteCameraEnabled(__instance, false);
 	}
 
@@ -102,6 +90,8 @@ namespace ScoutStreamingRevamp
 
 		private InputConsts.InputCommandType _toggleModeCommandType;
 		private ScreenPrompt _toggleModePrompt;
+
+		private Harmony _harmony;
 		// private ScreenPrompt _takeSnapshotPrompt;
 		// private ScreenPrompt _snapshotCenterPrompt;
 		// private ScreenPrompt _reverseCamPrompt;
@@ -110,13 +100,13 @@ namespace ScoutStreamingRevamp
 		private void Awake()
 		{
 			Instance = this;
-			Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly());
+			_harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly());
 		}
 
 		private void Start()
 		{
 			var snapshotMethodInfo = typeof(QuantumObject).GetMethod(
-				"OnProbeSnapshot",
+				nameof(QuantumObject.OnProbeSnapshot),
 				BindingFlags.NonPublic | BindingFlags.Instance
 			);
 
@@ -140,7 +130,10 @@ namespace ScoutStreamingRevamp
 		}
 
 		private void OnDestroy()
-			=> ModHelper.Events.Scenes.OnCompleteSceneChange -= OnSceneChange;
+		{
+			ModHelper.Events.Scenes.OnCompleteSceneChange -= OnSceneChange;
+			_harmony.UnpatchSelf();
+		}
 
 		private void Update()
 		{
@@ -209,9 +202,7 @@ namespace ScoutStreamingRevamp
 		public void InitializeProbePromptUI(ProbePromptController controller)
 		{
 			SetupModeTogglePrompt();
-			OnEquipped(controller);
 			UpdateUi();
-			OnUnequipped(controller);
 		}
 		
 		private void SetupModeTogglePrompt()
