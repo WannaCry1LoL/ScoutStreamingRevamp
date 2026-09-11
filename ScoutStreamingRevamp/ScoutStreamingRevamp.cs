@@ -50,16 +50,24 @@ internal static class SatelliteSnapshotControllerPatches
 	[HarmonyPostfix]
 	[HarmonyPatch(nameof(SatelliteSnapshotController.OnPressInteract))]
 	private static void OnPressInteract_Postfix(SatelliteSnapshotController __instance)
-		=> ScoutStreamingRevamp.Instance.SetSatelliteCameraEnabled(__instance, true);
+		=> ScoutStreamingRevamp.Instance.OnSatelliteInteract(__instance);
 
 	[HarmonyPostfix]
 	[HarmonyPatch(nameof(SatelliteSnapshotController.TurnOffProjector))]
 	private static void TurnOffProjector_Postfix(SatelliteSnapshotController __instance)
-		=> ScoutStreamingRevamp.Instance.SetSatelliteCameraEnabled(__instance, false);
+		=> ScoutStreamingRevamp.Instance.OnSatelliteExit(__instance);
+
+	[HarmonyPostfix]
+	[HarmonyPatch(nameof(SatelliteSnapshotController.RenderSnapshot))]
+	private static void RenderSnapshot_Postfix(SatelliteSnapshotController __instance)
+		=> ScoutStreamingRevamp.Instance.OnSatelliteRenderSnapshot(__instance);
+
 }
 
 public class ScoutStreamingRevamp : ModBehaviour
 {
+	private const InputMode RelevantInputModes =
+		InputMode.Character | InputMode.ShipCockpit | InputMode.StationaryProbeLauncher | InputMode.SatelliteCam;
 	public static ScoutStreamingRevamp Instance { get; private set; }
 
 	private CaptureMode CurrentMode
@@ -82,7 +90,9 @@ public class ScoutStreamingRevamp : ModBehaviour
 	private ProbeCamera _activeProbeCamera;
 	private ProbeCamera[] _probeCameras = [];
 	private QuantumObject[] _quantumObjects = [];
-
+	
+	private SatelliteSnapshotController _activeSatelliteController;
+	
 	private SnapshotDelegate _snapshotMethod;
 
 	private InputConsts.InputCommandType _toggleModeCommandType;
@@ -151,9 +161,14 @@ public class ScoutStreamingRevamp : ModBehaviour
 	{
 		UpdateUi();
 
-		if (!_activeProbeCamera) return;
-		var owCamera = _activeProbeCamera.GetOWCamera();
-		if (owCamera) owCamera.enabled = CurrentMode == CaptureMode.Streaming;
+		if (_activeProbeCamera)
+		{
+			var owCamera = _activeProbeCamera.GetOWCamera();
+			if (owCamera) owCamera.enabled = CurrentMode == CaptureMode.Streaming;
+		}
+		
+		if (_activeSatelliteController)
+			ApplySatelliteCaptureMode(_activeSatelliteController, CurrentMode);
 	}
 
 	private void OnSceneChange(OWScene oldScene, OWScene newScene)
@@ -163,13 +178,13 @@ public class ScoutStreamingRevamp : ModBehaviour
 		_quantumObjects = FindObjectsOfType<QuantumObject>();
 		_probeCameras = FindObjectsOfType<ProbeCamera>();
 		_activeProbeCamera = null;
+		_activeSatelliteController = null;
 
 		SetupModeTogglePrompt();
 	}
 
 	public void OnEquipped(ProbePromptController controller)
 	{
-		_toggleModePrompt?.SetVisibility(true);
 		// _takeSnapshotPrompt = controller.GetValue<ScreenPrompt>("_takeSnapshotPrompt");
 		// _snapshotCenterPrompt = controller.GetValue<ScreenPrompt>("_snapshotCenterPrompt");
 		// _forwardCamPrompt = controller.GetValue<ScreenPrompt>("_forwardCamPrompt");
@@ -179,7 +194,6 @@ public class ScoutStreamingRevamp : ModBehaviour
 		
 	public void OnUnequipped(ProbePromptController controller)
 	{
-		_toggleModePrompt?.SetVisibility(false);
 		// _takeSnapshotPrompt = _snapshotCenterPrompt = _forwardCamPrompt = _reverseCamPrompt = null;
 	}
 
@@ -211,9 +225,12 @@ public class ScoutStreamingRevamp : ModBehaviour
 
 	private void HandleModeToggleInput()
 	{
-		if (_toggleModePrompt == null || !_toggleModePrompt.IsVisible()) return;
-		if (!OWInput.IsInputMode(InputMode.Character | InputMode.ShipCockpit | InputMode.StationaryProbeLauncher)) return;
-
+		if (_toggleModePrompt == null) return;
+		
+		var isRelevantInputMode = OWInput.IsInputMode(RelevantInputModes);
+		_toggleModePrompt?.SetVisibility(isRelevantInputMode);
+		if (!isRelevantInputMode) return;
+		
 		var command = InputLibrary.GetInputCommand(_toggleModeCommandType);
 		if (command == null || !OWInput.IsNewlyPressed(command)) return;
 
@@ -249,13 +266,44 @@ public class ScoutStreamingRevamp : ModBehaviour
 		var owCamera = camera.GetOWCamera();
 		if (owCamera) owCamera.enabled = false;
 	}
-
-	public void SetSatelliteCameraEnabled(SatelliteSnapshotController controller, bool isEnabled)
+	
+	public void OnSatelliteInteract(SatelliteSnapshotController controller)
 	{
 		if (!controller) return;
-		
-		var satelliteCamera = controller._satelliteCamera;
-		if (satelliteCamera)
-			satelliteCamera.enabled = CurrentMode == CaptureMode.Streaming;
+		_activeSatelliteController = controller;
+		ApplySatelliteCaptureMode(controller, CurrentMode);
+	}
+
+	public void OnSatelliteExit(SatelliteSnapshotController controller)
+	{
+		if (!controller) return;
+
+		if (controller._satelliteCamera) controller._satelliteCamera.enabled = false;
+		if (controller._satelliteLight) controller._satelliteLight.enabled = false;
+		if (controller._probeMesh) controller._probeMesh.enabled = true;
+
+		if (_activeSatelliteController == controller)
+			_activeSatelliteController = null;
+	}
+
+	public void OnSatelliteRenderSnapshot(SatelliteSnapshotController controller)
+	{
+		if (!controller) return;
+		if (CurrentMode != CaptureMode.Streaming) return;
+		if (_activeSatelliteController != controller) return;
+
+		if (controller._probeMesh) controller._probeMesh.enabled = false;
+		if (controller._satelliteLight) controller._satelliteLight.enabled = true;
+	}
+
+	private static void ApplySatelliteCaptureMode(SatelliteSnapshotController controller, CaptureMode mode)
+	{
+		if (!controller) return;
+
+		var streaming = mode == CaptureMode.Streaming;
+
+		if (controller._satelliteCamera) controller._satelliteCamera.enabled = streaming;
+		if (controller._satelliteLight) controller._satelliteLight.enabled = streaming;
+		if (controller._probeMesh) controller._probeMesh.enabled = !streaming;
 	}
 }
