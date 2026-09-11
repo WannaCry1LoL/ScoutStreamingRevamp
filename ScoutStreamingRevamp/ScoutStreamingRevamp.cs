@@ -79,8 +79,7 @@ namespace ScoutStreamingRevamp
 		private string PromptSwitchText => 
 			CurrentMode == CaptureMode.Streaming ? "Scout Camera: Streaming" : "Scout Camera: Snapshot";
 		
-		private string SnapshotText =>
-			CurrentMode == CaptureMode.Streaming ? "Start Filming" : "Take Snapshot";
+		// private string SnapshotText => CurrentMode == CaptureMode.Streaming ? "Start Filming" : "Take Snapshot";
 
 		private ProbeCamera _activeProbeCamera;
 		private ProbeCamera[] _probeCameras = [];
@@ -110,13 +109,7 @@ namespace ScoutStreamingRevamp
 				BindingFlags.NonPublic | BindingFlags.Instance
 			);
 
-			if (snapshotMethodInfo == null)
-				ModHelper.Console.WriteLine(
-					"ScoutStreaming: couldn't find QuantumObject.OnProbeSnapshot.",
-					MessageType.Error
-				);
-			else 
-				_snapshotMethod = AccessTools.MethodDelegate<SnapshotDelegate>(snapshotMethodInfo);
+			_snapshotMethod = AccessTools.MethodDelegate<SnapshotDelegate>(snapshotMethodInfo);
 
 			_toggleModeCommandType = ModHelper.RebindingHelper.RegisterRebindable(
 				"Scout Camera: Toggle Streaming",
@@ -230,8 +223,6 @@ namespace ScoutStreamingRevamp
 				? CaptureMode.Snapshot
 				: CaptureMode.Streaming;
 		}
-
-		public void SetTogglePromptVisibility(bool isVisible) => _toggleModePrompt?.SetVisibility(isVisible);
 
 		public void ActivateProbeCamera(ProbeCamera camera)
 		{
