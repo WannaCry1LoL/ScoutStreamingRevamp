@@ -107,7 +107,7 @@ public class ScoutStreamingRevamp : ModBehaviour
 	private void Awake()
 	{
 		Instance = this;
-		_harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly());
+		_harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), "WannaCry.ScoutStreamingRevamp");
 	}
 
 	private void Start()
