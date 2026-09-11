@@ -1,266 +1,261 @@
 ﻿using System.Reflection;
 using HarmonyLib;
-using OWML.Common;
 using OWML.Common.Enums;
 using OWML.ModHelper;
 using OWML.Utils;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+namespace ScoutStreamingRevamp;
 
-namespace ScoutStreamingRevamp
+public delegate void SnapshotDelegate(QuantumObject quantumObject, ProbeCamera camera);
+
+public enum CaptureMode
 {
-	public enum CaptureMode
+	Snapshot,
+	Streaming
+}
+
+[HarmonyPatch(typeof(ProbeLauncher))]
+internal static class ProbeLauncherPatches
+{
+	[HarmonyPostfix]
+	[HarmonyPatch(nameof(ProbeLauncher.TakeSnapshotWithCamera))]
+	private static void TakeSnapshotWithCamera_Postfix(ProbeCamera camera)
+		=> ScoutStreamingRevamp.Instance.ActivateProbeCamera(camera);
+}
+
+[HarmonyPatch(typeof(ProbePromptController))]
+internal static class ProbePromptControllerPatches
+{
+	[HarmonyPostfix]
+	[HarmonyPatch(nameof(ProbePromptController.OnProbeLauncherEquipped))]
+	private static void OnProbeLauncherEquipped_Postfix(ProbePromptController __instance)
+		=> ScoutStreamingRevamp.Instance.OnEquipped(__instance);
+
+	[HarmonyPostfix]
+	[HarmonyPatch(nameof(ProbePromptController.OnProbeLauncherUnequipped))]
+	private static void OnProbeLauncherUnequipped_Postfix(ProbePromptController __instance) 
+		=> ScoutStreamingRevamp.Instance.OnUnequipped(__instance);
+
+	[HarmonyPostfix]
+	[HarmonyPatch(nameof(ProbePromptController.LateInitialize))]
+	private static void LateInitialize_Postfix(ProbePromptController __instance) 
+		=> ScoutStreamingRevamp.Instance.InitializeProbePromptUI(__instance);
+}
+
+[HarmonyPatch(typeof(SatelliteSnapshotController))]
+internal static class SatelliteSnapshotControllerPatches
+{
+	[HarmonyPostfix]
+	[HarmonyPatch(nameof(SatelliteSnapshotController.OnPressInteract))]
+	private static void OnPressInteract_Postfix(SatelliteSnapshotController __instance)
+		=> ScoutStreamingRevamp.Instance.SetSatelliteCameraEnabled(__instance, true);
+
+	[HarmonyPostfix]
+	[HarmonyPatch(nameof(SatelliteSnapshotController.TurnOffProjector))]
+	private static void TurnOffProjector_Postfix(SatelliteSnapshotController __instance)
+		=> ScoutStreamingRevamp.Instance.SetSatelliteCameraEnabled(__instance, false);
+}
+
+public class ScoutStreamingRevamp : ModBehaviour
+{
+	public static ScoutStreamingRevamp Instance { get; private set; }
+
+	private CaptureMode CurrentMode
 	{
-		Snapshot,
-		Streaming
+		get;
+		set
+		{
+			if (field == value) return;
+
+			field = value;
+			OnCaptureModeChanged();
+		}
+	}
+		
+	private string PromptSwitchText => 
+		CurrentMode == CaptureMode.Streaming ? "Scout Camera: Streaming" : "Scout Camera: Snapshot";
+		
+	// private string SnapshotText => CurrentMode == CaptureMode.Streaming ? "Start Filming" : "Take Snapshot";
+
+	private ProbeCamera _activeProbeCamera;
+	private ProbeCamera[] _probeCameras = [];
+	private QuantumObject[] _quantumObjects = [];
+
+	private SnapshotDelegate _snapshotMethod;
+
+	private InputConsts.InputCommandType _toggleModeCommandType;
+	private ScreenPrompt _toggleModePrompt;
+
+	private Harmony _harmony;
+	// private ScreenPrompt _takeSnapshotPrompt;
+	// private ScreenPrompt _snapshotCenterPrompt;
+	// private ScreenPrompt _reverseCamPrompt;
+	// private ScreenPrompt _forwardCamPrompt;
+
+	private void Awake()
+	{
+		Instance = this;
+		_harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly());
 	}
 
-	[HarmonyPatch(typeof(ProbeLauncher))]
-	internal static class ProbeLauncherPatches
+	private void Start()
 	{
-		[HarmonyPostfix]
-		[HarmonyPatch(nameof(ProbeLauncher.TakeSnapshotWithCamera))]
-		private static void TakeSnapshotWithCamera_Postfix(ProbeCamera camera)
-			=> ScoutStreamingRevamp.Instance.HandleSnapshotTaken(camera);
+		var snapshotMethodInfo = typeof(QuantumObject).GetMethod(
+			nameof(QuantumObject.OnProbeSnapshot),
+			BindingFlags.NonPublic | BindingFlags.Instance
+		);
+
+		_snapshotMethod = AccessTools.MethodDelegate<SnapshotDelegate>(snapshotMethodInfo);
+
+		_toggleModeCommandType = ModHelper.RebindingHelper.RegisterRebindable(
+			"Scout Camera: Toggle Streaming",
+			"Switches the scout camera between streaming and snapshot mode.",
+			Key.G,
+			GamepadBinding.DPadDown,
+			false
+		);
+
+		ModHelper.Events.Scenes.OnCompleteSceneChange += OnSceneChange;
 	}
 
-	[HarmonyPatch(typeof(ProbePromptController))]
-	internal static class ProbePromptControllerPatches
+	private void OnDestroy()
 	{
-		[HarmonyPostfix]
-		[HarmonyPatch(nameof(ProbePromptController.OnProbeLauncherEquipped))]
-		private static void OnProbeLauncherEquipped_Postfix(ProbePromptController __instance)
-			=> ScoutStreamingRevamp.Instance.OnEquipped(__instance);
-
-		[HarmonyPostfix]
-		[HarmonyPatch(nameof(ProbePromptController.OnProbeLauncherUnequipped))]
-		private static void OnProbeLauncherUnequipped_Postfix(ProbePromptController __instance) 
-			=> ScoutStreamingRevamp.Instance.OnUnequipped(__instance);
-
-		[HarmonyPostfix]
-		[HarmonyPatch(nameof(ProbePromptController.LateInitialize))]
-		private static void LateInitialize_Postfix(ProbePromptController __instance) 
-			=> ScoutStreamingRevamp.Instance.InitializeProbePromptUI(__instance);
+		ModHelper.Events.Scenes.OnCompleteSceneChange -= OnSceneChange;
+		_harmony.UnpatchSelf();
 	}
 
-	[HarmonyPatch(typeof(SatelliteSnapshotController))]
-	internal static class SatelliteSnapshotControllerPatches
+	private void Update()
 	{
-		[HarmonyPostfix]
-		[HarmonyPatch(nameof(SatelliteSnapshotController.OnPressInteract))]
-		private static void OnPressInteract_Postfix(SatelliteSnapshotController __instance)
-			=> ScoutStreamingRevamp.Instance.SetSatelliteCameraEnabled(__instance, true);
+		HandleModeToggleInput();
 
-		[HarmonyPostfix]
-		[HarmonyPatch(nameof(SatelliteSnapshotController.TurnOffProjector))]
-		private static void TurnOffProjector_Postfix(SatelliteSnapshotController __instance)
-			=> ScoutStreamingRevamp.Instance.SetSatelliteCameraEnabled(__instance, false);
+		if (CurrentMode != CaptureMode.Streaming) return;
+		if (!_activeProbeCamera || !_activeProbeCamera.isActiveAndEnabled) return;
+
+		RefreshQuantumObjects();
 	}
 
-	public class ScoutStreamingRevamp : ModBehaviour
+	private void RefreshQuantumObjects()
 	{
-		private delegate void SnapshotDelegate(QuantumObject quantumObject, ProbeCamera camera);
+		if (_snapshotMethod == null) return;
+
+		foreach (var quantumObject in _quantumObjects)
+		{
+			if (!quantumObject) continue;
+			_snapshotMethod(quantumObject, _activeProbeCamera);
+		}
+	}
+
+	private void OnCaptureModeChanged()
+	{
+		UpdateUi();
+
+		if (!_activeProbeCamera) return;
+		var owCamera = _activeProbeCamera.GetOWCamera();
+		if (owCamera) owCamera.enabled = CurrentMode == CaptureMode.Streaming;
+	}
+
+	private void OnSceneChange(OWScene oldScene, OWScene newScene)
+	{
+		if (newScene != OWScene.SolarSystem && newScene != OWScene.EyeOfTheUniverse) return;
+
+		_quantumObjects = FindObjectsOfType<QuantumObject>();
+		_probeCameras = FindObjectsOfType<ProbeCamera>();
+		_activeProbeCamera = null;
+
+		SetupModeTogglePrompt();
+	}
+
+	public void OnEquipped(ProbePromptController controller)
+	{
+		_toggleModePrompt?.SetVisibility(true);
+		// _takeSnapshotPrompt = controller.GetValue<ScreenPrompt>("_takeSnapshotPrompt");
+		// _snapshotCenterPrompt = controller.GetValue<ScreenPrompt>("_snapshotCenterPrompt");
+		// _forwardCamPrompt = controller.GetValue<ScreenPrompt>("_forwardCamPrompt");
+		// _reverseCamPrompt = controller.GetValue<ScreenPrompt>("_reverseCamPrompt");
+		UpdateUi();
+	}
 		
-		public static ScoutStreamingRevamp Instance { get; private set; }
+	public void OnUnequipped(ProbePromptController controller)
+	{
+		_toggleModePrompt?.SetVisibility(false);
+		// _takeSnapshotPrompt = _snapshotCenterPrompt = _forwardCamPrompt = _reverseCamPrompt = null;
+	}
 
-		private CaptureMode CurrentMode
-		{
-			get;
-			set
-			{
-				if (field == value) return;
-
-				field = value;
-				OnCaptureModeChanged();
-			}
-		}
+	public void UpdateUi()
+	{
+		_toggleModePrompt?.SetText(PromptSwitchText);
+		// _takeSnapshotPrompt?.SetText(SnapshotText);
+		// _snapshotCenterPrompt?.SetText(SnapshotText);
+	}
 		
-		private string PromptSwitchText => 
-			CurrentMode == CaptureMode.Streaming ? "Scout Camera: Streaming" : "Scout Camera: Snapshot";
+	public void InitializeProbePromptUI(ProbePromptController controller)
+	{
+		SetupModeTogglePrompt();
+		UpdateUi();
+	}
 		
-		// private string SnapshotText => CurrentMode == CaptureMode.Streaming ? "Start Filming" : "Take Snapshot";
-
-		private ProbeCamera _activeProbeCamera;
-		private ProbeCamera[] _probeCameras = [];
-		private QuantumObject[] _quantumObjects = [];
-
-		private SnapshotDelegate _snapshotMethod;
-
-		private InputConsts.InputCommandType _toggleModeCommandType;
-		private ScreenPrompt _toggleModePrompt;
-
-		private Harmony _harmony;
-		// private ScreenPrompt _takeSnapshotPrompt;
-		// private ScreenPrompt _snapshotCenterPrompt;
-		// private ScreenPrompt _reverseCamPrompt;
-		// private ScreenPrompt _forwardCamPrompt;
-
-		private void Awake()
-		{
-			Instance = this;
-			_harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly());
-		}
-
-		private void Start()
-		{
-			var snapshotMethodInfo = typeof(QuantumObject).GetMethod(
-				nameof(QuantumObject.OnProbeSnapshot),
-				BindingFlags.NonPublic | BindingFlags.Instance
-			);
-
-			_snapshotMethod = AccessTools.MethodDelegate<SnapshotDelegate>(snapshotMethodInfo);
-
-			_toggleModeCommandType = ModHelper.RebindingHelper.RegisterRebindable(
-				"Scout Camera: Toggle Streaming",
-				"Switches the scout camera between streaming and snapshot mode.",
-				Key.G,
-				GamepadBinding.DPadDown,
-				false
-			);
-
-			ModHelper.Events.Scenes.OnCompleteSceneChange += OnSceneChange;
-		}
-
-		private void OnDestroy()
-		{
-			ModHelper.Events.Scenes.OnCompleteSceneChange -= OnSceneChange;
-			_harmony.UnpatchSelf();
-		}
-
-		private void Update()
-		{
-			HandleModeToggleInput();
-
-			if (CurrentMode != CaptureMode.Streaming) return;
-			if (!_activeProbeCamera || !_activeProbeCamera.isActiveAndEnabled) return;
-
-			RefreshQuantumObjects();
-		}
-
-		private void RefreshQuantumObjects()
-		{
-			if (_snapshotMethod == null) return;
-
-			foreach (var quantumObject in _quantumObjects)
-			{
-				if (!quantumObject) continue;
-				_snapshotMethod(quantumObject, _activeProbeCamera);
-			}
-		}
-
-		private void OnCaptureModeChanged()
-		{
-			UpdateUi();
-
-			if (!_activeProbeCamera) return;
-			var owCamera = _activeProbeCamera.GetOWCamera();
-			if (owCamera) owCamera.enabled = CurrentMode == CaptureMode.Streaming;
-		}
-
-		private void OnSceneChange(OWScene oldScene, OWScene newScene)
-		{
-			if (newScene != OWScene.SolarSystem && newScene != OWScene.EyeOfTheUniverse) return;
-
-			_quantumObjects = FindObjectsOfType<QuantumObject>();
-			_probeCameras = FindObjectsOfType<ProbeCamera>();
-			_activeProbeCamera = null;
-
-			SetupModeTogglePrompt();
-		}
-
-		public void OnEquipped(ProbePromptController controller)
-		{
-			_toggleModePrompt?.SetVisibility(true);
-			// _takeSnapshotPrompt = controller.GetValue<ScreenPrompt>("_takeSnapshotPrompt");
-			// _snapshotCenterPrompt = controller.GetValue<ScreenPrompt>("_snapshotCenterPrompt");
-			// _forwardCamPrompt = controller.GetValue<ScreenPrompt>("_forwardCamPrompt");
-			// _reverseCamPrompt = controller.GetValue<ScreenPrompt>("_reverseCamPrompt");
-			UpdateUi();
-		}
-		
-		public void OnUnequipped(ProbePromptController controller)
-		{
-			_toggleModePrompt?.SetVisibility(false);
-			// _takeSnapshotPrompt = _snapshotCenterPrompt = _forwardCamPrompt = _reverseCamPrompt = null;
-		}
-
-		public void UpdateUi()
-		{
-			_toggleModePrompt?.SetText(PromptSwitchText);
-			// _takeSnapshotPrompt?.SetText(SnapshotText);
-			// _snapshotCenterPrompt?.SetText(SnapshotText);
-		}
-		
-		public void InitializeProbePromptUI(ProbePromptController controller)
-		{
-			SetupModeTogglePrompt();
-			UpdateUi();
-		}
-		
-		private void SetupModeTogglePrompt()
-		{
-			var command = InputLibrary.GetInputCommand(_toggleModeCommandType);
-			if (command == null) return;
+	private void SetupModeTogglePrompt()
+	{
+		var command = InputLibrary.GetInputCommand(_toggleModeCommandType);
+		if (command == null) return;
 			
-			var manager = Locator.GetPromptManager();
-			if (!manager) return;
+		var manager = Locator.GetPromptManager();
+		if (!manager) return;
 			
-			_toggleModePrompt = new ScreenPrompt(command, PromptSwitchText);
-			manager.AddScreenPrompt(_toggleModePrompt, PromptPosition.UpperRight);
-			_toggleModePrompt.SetVisibility(false);
-		}
+		_toggleModePrompt = new ScreenPrompt(command, PromptSwitchText);
+		manager.AddScreenPrompt(_toggleModePrompt, PromptPosition.UpperRight);
+		_toggleModePrompt.SetVisibility(false);
+	}
 
-		private void HandleModeToggleInput()
+	private void HandleModeToggleInput()
+	{
+		if (_toggleModePrompt == null || !_toggleModePrompt.IsVisible()) return;
+		if (!OWInput.IsInputMode(InputMode.Character | InputMode.ShipCockpit | InputMode.StationaryProbeLauncher)) return;
+
+		var command = InputLibrary.GetInputCommand(_toggleModeCommandType);
+		if (command == null || !OWInput.IsNewlyPressed(command)) return;
+
+		CurrentMode = CurrentMode == CaptureMode.Streaming
+			? CaptureMode.Snapshot
+			: CaptureMode.Streaming;
+	}
+
+	public void ActivateProbeCamera(ProbeCamera camera)
+	{
+		if (!camera) return;
+		_activeProbeCamera = camera;
+
+		foreach (var probeCamera in _probeCameras)
 		{
-			if (_toggleModePrompt == null || !_toggleModePrompt.IsVisible()) return;
-			if (!OWInput.IsInputMode(InputMode.Character | InputMode.ShipCockpit)) return;
-
-			var command = InputLibrary.GetInputCommand(_toggleModeCommandType);
-			if (command == null || !OWInput.IsNewlyPressed(command)) return;
-
-			CurrentMode = CurrentMode == CaptureMode.Streaming
-				? CaptureMode.Snapshot
-				: CaptureMode.Streaming;
+			if (!probeCamera) continue;
+			var owCamera = probeCamera.GetOWCamera();
+			if (!owCamera) continue;
+			owCamera.enabled = probeCamera == camera;
 		}
 
-		public void ActivateProbeCamera(ProbeCamera camera)
-		{
-			if (!camera) return;
-			_activeProbeCamera = camera;
+		if (CurrentMode == CaptureMode.Snapshot)
+			StartCoroutine(FreezeAfterFrame(camera));
+	}
 
-			foreach (var probeCamera in _probeCameras)
-			{
-				if (!probeCamera) continue;
-				var owCamera = probeCamera.GetOWCamera();
-				if (!owCamera) continue;
-				owCamera.enabled = probeCamera == camera;
-			}
+	private System.Collections.IEnumerator FreezeAfterFrame(ProbeCamera camera)
+	{
+		yield return new WaitForEndOfFrame();
 
-			if (CurrentMode == CaptureMode.Snapshot)
-				StartCoroutine(FreezeAfterFrame(camera));
-		}
+		if (CurrentMode != CaptureMode.Snapshot) yield break;
+		if (_activeProbeCamera != camera) yield break;
 
-		private System.Collections.IEnumerator FreezeAfterFrame(ProbeCamera camera)
-		{
-			yield return new WaitForEndOfFrame();
+		var owCamera = camera.GetOWCamera();
+		if (owCamera) owCamera.enabled = false;
+	}
 
-			if (CurrentMode != CaptureMode.Snapshot) yield break;
-			if (_activeProbeCamera != camera) yield break;
-
-			var owCamera = camera.GetOWCamera();
-			if (owCamera) owCamera.enabled = false;
-		}
+	public void SetSatelliteCameraEnabled(SatelliteSnapshotController controller, bool isEnabled)
+	{
+		if (!controller) return;
 		
-		public void HandleSnapshotTaken(ProbeCamera camera) => ActivateProbeCamera(camera);
-
-		public void SetSatelliteCameraEnabled(SatelliteSnapshotController controller, bool isEnabled)
-		{
-			if (!controller) return;
-			
-			var satelliteCamera = controller.GetValue<OWCamera>("_satelliteCamera");
-			if (satelliteCamera)
-				satelliteCamera.enabled = isEnabled;
-		}
+		var satelliteCamera = controller._satelliteCamera;
+		if (satelliteCamera)
+			satelliteCamera.enabled = CurrentMode == CaptureMode.Streaming;
 	}
 }
