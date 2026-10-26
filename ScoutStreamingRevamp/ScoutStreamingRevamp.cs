@@ -16,6 +16,8 @@ public enum CaptureMode
 	Streaming
 }
 
+// ReSharper disable InconsistentNaming
+
 [HarmonyPatch(typeof(ProbeLauncher))]
 internal static class ProbeLauncherPatches
 {
@@ -35,12 +37,12 @@ internal static class ProbePromptControllerPatches
 
 	[HarmonyPostfix]
 	[HarmonyPatch(nameof(ProbePromptController.OnProbeLauncherUnequipped))]
-	private static void OnProbeLauncherUnequipped_Postfix(ProbePromptController __instance) 
+	private static void OnProbeLauncherUnequipped_Postfix(ProbePromptController __instance)
 		=> ScoutStreamingRevamp.Instance.OnUnequipped(__instance);
 
 	[HarmonyPostfix]
 	[HarmonyPatch(nameof(ProbePromptController.LateInitialize))]
-	private static void LateInitialize_Postfix(ProbePromptController __instance) 
+	private static void LateInitialize_Postfix(ProbePromptController __instance)
 		=> ScoutStreamingRevamp.Instance.InitializeProbePromptUI(__instance);
 }
 
@@ -61,13 +63,16 @@ internal static class SatelliteSnapshotControllerPatches
 	[HarmonyPatch(nameof(SatelliteSnapshotController.RenderSnapshot))]
 	private static void RenderSnapshot_Postfix(SatelliteSnapshotController __instance)
 		=> ScoutStreamingRevamp.Instance.OnSatelliteRenderSnapshot(__instance);
-
 }
+
+// ReSharper enable InconsistentNaming
 
 public class ScoutStreamingRevamp : ModBehaviour
 {
-	private const InputMode RelevantInputModes =
-		InputMode.Character | InputMode.ShipCockpit | InputMode.StationaryProbeLauncher | InputMode.SatelliteCam;
+	private const InputMode ProbeInputModes =
+		InputMode.Character | InputMode.ShipCockpit | InputMode.StationaryProbeLauncher;
+
+	private const InputMode SatelliteInputModes = InputMode.SatelliteCam;
 	public static ScoutStreamingRevamp Instance { get; private set; }
 
 	private CaptureMode CurrentMode
@@ -81,18 +86,19 @@ public class ScoutStreamingRevamp : ModBehaviour
 			OnCaptureModeChanged();
 		}
 	}
-		
-	private string PromptSwitchText => 
+
+	private string PromptSwitchText =>
 		CurrentMode == CaptureMode.Streaming ? "Scout Camera: Streaming" : "Scout Camera: Snapshot";
-		
+
 	// private string SnapshotText => CurrentMode == CaptureMode.Streaming ? "Start Filming" : "Take Snapshot";
 
 	private ProbeCamera _activeProbeCamera;
 	private ProbeCamera[] _probeCameras = [];
 	private QuantumObject[] _quantumObjects = [];
-	
+
 	private SatelliteSnapshotController _activeSatelliteController;
-	
+	private ProbePromptController _probePromptController;
+
 	private SnapshotDelegate _snapshotMethod;
 
 	private InputConsts.InputCommandType _toggleModeCommandType;
@@ -166,7 +172,7 @@ public class ScoutStreamingRevamp : ModBehaviour
 			var owCamera = _activeProbeCamera.GetOWCamera();
 			if (owCamera) owCamera.enabled = CurrentMode == CaptureMode.Streaming;
 		}
-		
+
 		if (_activeSatelliteController)
 			ApplySatelliteCaptureMode(_activeSatelliteController, CurrentMode);
 	}
@@ -179,6 +185,7 @@ public class ScoutStreamingRevamp : ModBehaviour
 		_probeCameras = FindObjectsOfType<ProbeCamera>();
 		_activeProbeCamera = null;
 		_activeSatelliteController = null;
+		_probePromptController = null;
 
 		SetupModeTogglePrompt();
 	}
@@ -191,7 +198,7 @@ public class ScoutStreamingRevamp : ModBehaviour
 		// _reverseCamPrompt = controller.GetValue<ScreenPrompt>("_reverseCamPrompt");
 		UpdateUi();
 	}
-		
+
 	public void OnUnequipped(ProbePromptController controller)
 	{
 		// _takeSnapshotPrompt = _snapshotCenterPrompt = _forwardCamPrompt = _reverseCamPrompt = null;
@@ -203,34 +210,41 @@ public class ScoutStreamingRevamp : ModBehaviour
 		// _takeSnapshotPrompt?.SetText(SnapshotText);
 		// _snapshotCenterPrompt?.SetText(SnapshotText);
 	}
-		
+
 	public void InitializeProbePromptUI(ProbePromptController controller)
 	{
+		_probePromptController = controller;
 		SetupModeTogglePrompt();
 		UpdateUi();
 	}
-		
+
 	private void SetupModeTogglePrompt()
 	{
 		var command = InputLibrary.GetInputCommand(_toggleModeCommandType);
 		if (command == null) return;
-			
+
 		var manager = Locator.GetPromptManager();
 		if (!manager) return;
-			
+
+		if (_toggleModePrompt != null)
+			manager.RemoveScreenPrompt(_toggleModePrompt);
+
 		_toggleModePrompt = new ScreenPrompt(command, PromptSwitchText);
 		manager.AddScreenPrompt(_toggleModePrompt, PromptPosition.UpperRight);
-		_toggleModePrompt.SetVisibility(false);
 	}
 
 	private void HandleModeToggleInput()
 	{
 		if (_toggleModePrompt == null) return;
-		
-		var isRelevantInputMode = OWInput.IsInputMode(RelevantInputModes);
-		_toggleModePrompt?.SetVisibility(isRelevantInputMode);
-		if (!isRelevantInputMode) return;
-		
+
+		var isProbeActive = _probePromptController && _probePromptController.enabled &&
+		                    OWInput.IsInputMode(ProbeInputModes);
+		var isSatelliteActive = _activeSatelliteController && OWInput.IsInputMode(SatelliteInputModes);
+		var shouldShow = isProbeActive || isSatelliteActive;
+
+		_toggleModePrompt.SetVisibility(shouldShow);
+		if (!shouldShow) return;
+
 		var command = InputLibrary.GetInputCommand(_toggleModeCommandType);
 		if (command == null || !OWInput.IsNewlyPressed(command)) return;
 
@@ -266,7 +280,7 @@ public class ScoutStreamingRevamp : ModBehaviour
 		var owCamera = camera.GetOWCamera();
 		if (owCamera) owCamera.enabled = false;
 	}
-	
+
 	public void OnSatelliteInteract(SatelliteSnapshotController controller)
 	{
 		if (!controller) return;
