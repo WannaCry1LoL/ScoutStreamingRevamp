@@ -1,10 +1,19 @@
-﻿using System.Reflection;
+﻿using System;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using HarmonyLib;
+using OWML.Common;
 using OWML.Common.Enums;
 using OWML.ModHelper;
 using OWML.Utils;
 using UnityEngine;
 using UnityEngine.InputSystem;
+
+/*
+ * TODO: Third mode (Fixed Update)
+ * TODO: Option for framerate
+ * TODO: Option to take snapshot on scout launch in streaming mode
+ */
 
 namespace ScoutStreamingRevamp;
 
@@ -69,12 +78,21 @@ internal static class SatelliteSnapshotControllerPatches
 
 public class ScoutStreamingRevamp : ModBehaviour
 {
+	private const string StreamingSettingName = "ScoutMode";
+	private const string FixHudTintSettingName = "FixHudTint";
+	private const string ColoredCamerasSettingName = "ColoredCameras";
+	
 	private const InputMode ProbeInputModes =
 		InputMode.Character | InputMode.ShipCockpit | InputMode.StationaryProbeLauncher;
 
 	private const InputMode SatelliteInputModes = InputMode.SatelliteCam;
+	
+	private static readonly int ColorPropertyKey = Shader.PropertyToID("_Color");
+	private static readonly Color DefaultHudMaterialColor = new(1, 1, 1, 1);
+	private static readonly Color FixedHudMaterialColor = new(1, 0.75f, 0.75f, 1);
+	
 	public static ScoutStreamingRevamp Instance { get; private set; }
-
+	
 	private CaptureMode CurrentMode
 	{
 		get;
@@ -82,11 +100,18 @@ public class ScoutStreamingRevamp : ModBehaviour
 		{
 			if (field == value) return;
 
-			field = value;
-			OnCaptureModeChanged();
+			field = value; 
+			ModHelper.Config.SetSettingsValue(StreamingSettingName, value.GetName());
+			ApplySettings();
 		}
 	}
 
+	private bool ColoredCameras;
+	
+	private bool FixHudTint;
+
+	private Color HudMaterialColor => FixHudTint ? FixedHudMaterialColor : DefaultHudMaterialColor;
+	
 	private string PromptSwitchText =>
 		CurrentMode == CaptureMode.Streaming ? "Scout Camera: Streaming" : "Scout Camera: Snapshot";
 
@@ -95,9 +120,10 @@ public class ScoutStreamingRevamp : ModBehaviour
 	private ProbeCamera _activeProbeCamera;
 	private ProbeCamera[] _probeCameras = [];
 	private QuantumObject[] _quantumObjects = [];
-
+	
 	private SatelliteSnapshotController _activeSatelliteController;
 	private ProbePromptController _probePromptController;
+	private HUDCanvas _hudCanvas;
 
 	private SnapshotDelegate _snapshotMethod;
 
@@ -134,6 +160,8 @@ public class ScoutStreamingRevamp : ModBehaviour
 		);
 
 		ModHelper.Events.Scenes.OnCompleteSceneChange += OnSceneChange;
+		
+		Configure(ModHelper.Config);
 	}
 
 	private void OnDestroy()
@@ -152,19 +180,22 @@ public class ScoutStreamingRevamp : ModBehaviour
 		RefreshQuantumObjects();
 	}
 
-	private void RefreshQuantumObjects()
+	public override void Configure(IModConfig config)
 	{
-		if (_snapshotMethod == null) return;
-
-		foreach (var quantumObject in _quantumObjects)
-		{
-			if (!quantumObject) continue;
-			_snapshotMethod(quantumObject, _activeProbeCamera);
-		}
+		CurrentMode = config.GetSettingsValue<CaptureMode>(StreamingSettingName);
+		FixHudTint = config.GetSettingsValue<bool>(FixHudTintSettingName);
+		ColoredCameras = config.GetSettingsValue<bool>(ColoredCamerasSettingName);
+		ApplySettings();
 	}
 
-	private void OnCaptureModeChanged()
+	private void ApplySettings()
 	{
+		if (_hudCanvas)
+			_hudCanvas._hudProbeLauncherUI?._material.SetColor(ColorPropertyKey, HudMaterialColor);
+		
+		foreach (var probeCamera in _probeCameras)
+			probeCamera._camera._postProcessingSettings?.userLutEnabled = !ColoredCameras;
+		
 		UpdateUi();
 
 		if (_activeProbeCamera)
@@ -177,12 +208,24 @@ public class ScoutStreamingRevamp : ModBehaviour
 			ApplySatelliteCaptureMode(_activeSatelliteController, CurrentMode);
 	}
 
+	private void RefreshQuantumObjects()
+	{
+		if (_snapshotMethod == null) return;
+
+		foreach (var quantumObject in _quantumObjects)
+		{
+			if (!quantumObject) continue;
+			_snapshotMethod(quantumObject, _activeProbeCamera);
+		}
+	}
+
 	private void OnSceneChange(OWScene oldScene, OWScene newScene)
 	{
 		if (newScene != OWScene.SolarSystem && newScene != OWScene.EyeOfTheUniverse) return;
 
 		_quantumObjects = FindObjectsOfType<QuantumObject>();
 		_probeCameras = FindObjectsOfType<ProbeCamera>();
+		_hudCanvas = FindObjectOfType<HUDCanvas>();
 		_activeProbeCamera = null;
 		_activeSatelliteController = null;
 		_probePromptController = null;
@@ -284,6 +327,8 @@ public class ScoutStreamingRevamp : ModBehaviour
 	public void OnSatelliteInteract(SatelliteSnapshotController controller)
 	{
 		if (!controller) return;
+		if (_activeSatelliteController) OnSatelliteExit(_activeSatelliteController);
+		
 		_activeSatelliteController = controller;
 		ApplySatelliteCaptureMode(controller, CurrentMode);
 	}
@@ -291,11 +336,8 @@ public class ScoutStreamingRevamp : ModBehaviour
 	public void OnSatelliteExit(SatelliteSnapshotController controller)
 	{
 		if (!controller) return;
-
-		if (controller._satelliteCamera) controller._satelliteCamera.enabled = false;
-		if (controller._satelliteLight) controller._satelliteLight.enabled = false;
-		if (controller._probeMesh) controller._probeMesh.enabled = true;
-
+		
+		ApplySatelliteCaptureMode(controller, CaptureMode.Snapshot);
 		if (_activeSatelliteController == controller)
 			_activeSatelliteController = null;
 	}
@@ -306,8 +348,7 @@ public class ScoutStreamingRevamp : ModBehaviour
 		if (CurrentMode != CaptureMode.Streaming) return;
 		if (_activeSatelliteController != controller) return;
 
-		if (controller._probeMesh) controller._probeMesh.enabled = false;
-		if (controller._satelliteLight) controller._satelliteLight.enabled = true;
+		ApplySatelliteCaptureMode(controller, CaptureMode.Streaming);
 	}
 
 	private static void ApplySatelliteCaptureMode(SatelliteSnapshotController controller, CaptureMode mode)

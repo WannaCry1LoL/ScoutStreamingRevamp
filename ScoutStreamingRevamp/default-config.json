@@ -1,4 +1,27 @@
 {
   "$schema": "https://raw.githubusercontent.com/ow-mods/owml/master/schemas/config_schema.json",
-  "enabled": true
+  "enabled": true,
+  "settings": {
+    "ColoredCameras": {
+      "type": "toggle",
+      "value": false,
+      "title": "Colored Cameras",
+      "tooltip": "Whether to patch scout cameras to have color."
+    },
+    "FixHudTint": {
+      "type": "toggle",
+      "value": true,
+      "title": "Fix Hud Tint",
+      "tooltip": "Whether to fix the green tint of the portable scout launcher."
+    },
+    "ScoutMode": {
+      "type": "selector",
+      "value": "Streaming",
+      "options": [
+        "Streaming",
+        "Snapshot"
+      ],
+      "title": "Scout Mode"
+    }
+  }
 }
