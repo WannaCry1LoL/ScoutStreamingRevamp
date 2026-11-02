@@ -9,8 +9,13 @@
       "tooltip": "Whether to patch scout cameras to have color."
     },
     "FixHudTint": {
-      "type": "toggle",
-      "value": true,
+      "type": "selector",
+      "value": "Automatic",
+      "options": [
+        "Never",
+        "Always",
+        "Automatic"
+      ],
       "title": "Fix Hud Tint",
       "tooltip": "Whether to fix the green tint of the portable scout launcher."
     },
