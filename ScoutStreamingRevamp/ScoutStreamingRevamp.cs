@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections;
-using System.Linq;
+﻿using System.Collections;
 using System.Reflection;
 using HarmonyLib;
 using OWML.Common;
@@ -26,7 +24,7 @@ public enum CaptureMode
 	Streaming
 }
 
-public enum FixHudTintMode
+public enum SettingTristate
 {
 	Never,
 	Always,
@@ -42,6 +40,11 @@ internal static class ProbeLauncherPatches
 	[HarmonyPatch(nameof(ProbeLauncher.TakeSnapshotWithCamera))]
 	private static void TakeSnapshotWithCamera_Postfix(ProbeCamera camera)
 		=> ScoutStreamingRevamp.Instance.ActivateProbeCamera(camera);
+	
+	[HarmonyPostfix]
+	[HarmonyPatch(nameof(ProbeLauncher.EquipTool))]
+	private static void EquipTool_Postfix()
+		=> ScoutStreamingRevamp.Instance.ApplySettings();
 }
 
 [HarmonyPatch(typeof(ProbePromptController))]
@@ -92,7 +95,7 @@ public class ScoutStreamingRevamp : ModBehaviour
 	public static ScoutStreamingRevamp Instance { get; private set; }
 
 	private CaptureMode _mode;
-	private FixHudTintMode _fixHudTint;
+	private SettingTristate _fixHudTint;
 	private bool _coloredCameras;
 
 	private ProbeCamera[] _probeCameras = [];
@@ -113,8 +116,8 @@ public class ScoutStreamingRevamp : ModBehaviour
 
 	private Color HudMaterialColor => _fixHudTint switch
 	{
-		FixHudTintMode.Always => FixedHudMaterialColor,
-		FixHudTintMode.Automatic when _coloredCameras => FixedHudMaterialColor,
+		SettingTristate.Always => FixedHudMaterialColor,
+		SettingTristate.Automatic when _coloredCameras => FixedHudMaterialColor,
 		_ => DefaultHudMaterialColor
 	};
 
@@ -186,7 +189,7 @@ public class ScoutStreamingRevamp : ModBehaviour
 	public override void Configure(IModConfig config)
 	{
 		_mode = config.GetSettingsValue<CaptureMode>(ModeSettingName);
-		_fixHudTint = config.GetSettingsValue<FixHudTintMode>(FixHudTintSettingName);
+		_fixHudTint = config.GetSettingsValue<SettingTristate>(FixHudTintSettingName);
 		_coloredCameras = config.GetSettingsValue<bool>(ColoredCamerasSettingName);
 		ApplySettings();
 	}
@@ -197,7 +200,7 @@ public class ScoutStreamingRevamp : ModBehaviour
 			if (quantumObject) _snapshotMethod(quantumObject, _activeProbeCamera);
 	}
 	
-	private void ApplySettings()
+	internal void ApplySettings()
 	{
 		if (_hudCanvas)
 			_hudCanvas._hudProbeLauncherUI._material?.SetColor(ColorPropertyKey, HudMaterialColor);
